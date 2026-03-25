@@ -1,8 +1,8 @@
 # deqwl — VLESS Checked Subscription (оптимизировано для РФ)
 
-**Самая рабочая подписка сейчас:** https://raw.githubusercontent.com/dequar/deqwl/main/vless_checked.txt
-
 **Основная ссылка (рекомендуется):** https://raw.githubusercontent.com/dequar/deqwl/main/vless_checked.txt
+
+**Для тех, кто хочет БОЛЬШЕ (не для телефонов!):** https://raw.githubusercontent.com/dequar/deqwl/main/vless_all.txt
 
 **Как импортировать:**
 - v2rayNG / Nekobox / Hiddify → Добавить подписку → вставить ссылку выше
