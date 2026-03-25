@@ -1,13 +1,13 @@
-name: Update VLESS Checked (Xray Test)
+name: Update VLESS Checked
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 * * * *'     # каждый час
   workflow_dispatch:
 
 jobs:
   update:
-    runs-on: ubuntu-24.04   # явно указываем, чтобы не было сюрпризов
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -17,42 +17,30 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests
 
       - name: Download latest Xray-core
         run: |
-          echo "Получаем последнюю версию Xray..."
           XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name"' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-          
-          if [ -z "$XRAY_VERSION" ]; then
-            echo "API не отдал версию → fallback v1.8.24"
-            XRAY_VERSION="v1.8.24"
-          fi
-          
-          echo "Скачиваем Xray ${XRAY_VERSION}"
-          wget -q https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip -O xray.zip || {
-            echo "wget упал, пробуем старую версию"
-            XRAY_VERSION="v1.8.24"
-            wget -q https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip -O xray.zip
-          }
-          
+          if [ -z "$XRAY_VERSION" ]; then XRAY_VERSION="v1.8.24"; fi
+          wget -q https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip -O xray.zip
           unzip -q xray.zip xray
           chmod +x xray
           sudo mv xray /usr/local/bin/xray
           rm -f xray.zip
-          echo "Установлен: $(xray version | head -n 1)"
+          echo "Xray установлен: $(xray version | head -n 1)"
 
-      - name: Run collector with Xray test
+      - name: Run collector
         run: python collector.py
 
       - name: Commit and push if changed
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add vless_checked.txt
+          git add vless_checked.txt vless_all.txt   # ← добавили второй файл!
           if git diff --quiet --cached; then
-            echo "No changes to commit"
+            echo "No changes"
           else
-            git commit -m "Update vless_checked.txt (Xray tested for RU) - $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update vless_checked.txt + vless_all.txt - $(date +'%Y-%m-%d %H:%M')"
             git push
           fi
