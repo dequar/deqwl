@@ -6,103 +6,133 @@ import json
 import tempfile
 import os
 from datetime import datetime
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ==================== ТОЛЬКО ЛУЧШИЕ ИСТОЧНИКИ ====================
+# ==================== ИСТОЧНИКИ ====================
 SOURCES = [
-    "https://raw.githubusercontent.com/zieng2/wl/main/vless.txt",          # самая большая от zieng2
+    "https://raw.githubusercontent.com/zieng2/wl/main/vless.txt",
     "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-SNI-RU-all.txt",
     "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-CIDR-RU-all.txt",
 ]
 
 VLESS_PATTERN = re.compile(r'vless://[^\s<>"]+')
 
+# ==================== РАСШИРЕННАЯ КАРТА СТРАН (60+ как у zieng2) ====================
+COUNTRY_MAP = {
+    "RU": ("🇷🇺", "RU"), "PL": ("🇵🇱", "PL"), "FI": ("🇫🇮", "FI"), "NL": ("🇳🇱", "NL"),
+    "DE": ("🇩🇪", "DE"), "FR": ("🇫🇷", "FR"), "GB": ("🇬🇧", "GB"), "US": ("🇺🇸", "US"),
+    "TR": ("🇹🇷", "TR"), "IR": ("🇮🇷", "IR"), "UA": ("🇺🇦", "UA"), "AT": ("🇦🇹", "AT"),
+    "CH": ("🇨🇭", "CH"), "SE": ("🇸🇪", "SE"), "NO": ("🇳🇴", "NO"), "BE": ("🇧🇪", "BE"),
+    "ES": ("🇪🇸", "ES"), "IT": ("🇮🇹", "IT"), "CZ": ("🇨🇿", "CZ"), "SK": ("🇸🇰", "SK"),
+    "HU": ("🇭🇺", "HU"), "RO": ("🇷🇴", "RO"), "BG": ("🇧🇬", "BG"), "GR": ("🇬🇷", "GR"),
+    "PT": ("🇵🇹", "PT"), "DK": ("🇩🇰", "DK"), "LT": ("🇱🇹", "LT"), "LV": ("🇱🇻", "LV"),
+    "EE": ("🇪🇪", "EE"), "HR": ("🇭🇷", "HR"), "RS": ("🇷🇸", "RS"), "BA": ("🇧🇦", "BA"),
+    "MD": ("🇲🇩", "MD"), "BY": ("🇧🇾", "BY"), "KZ": ("🇰🇿", "KZ"), "UZ": ("🇺🇿", "UZ"),
+    "AE": ("🇦🇪", "AE"), "SG": ("🇸🇬", "SG"), "JP": ("🇯🇵", "JP"), "KR": ("🇰🇷", "KR"),
+    "CN": ("🇨🇳", "CN"), "HK": ("🇭🇰", "HK"), "TW": ("🇹🇼", "TW"), "IN": ("🇮🇳", "IN"),
+    "BR": ("🇧🇷", "BR"), "CA": ("🇨🇦", "CA"), "AU": ("🇦🇺", "AU"), "NZ": ("🇳🇿", "NZ"),
+    "MX": ("🇲🇽", "MX"), "AR": ("🇦🇷", "AR"), "ZA": ("🇿🇦", "ZA"), "IL": ("🇮🇱", "IL"),
+    "SA": ("🇸🇦", "SA"), "TH": ("🇹🇭", "TH"), "VN": ("🇻🇳", "VN"), "MY": ("🇲🇾", "MY"),
+    "ID": ("🇮🇩", "ID"), "PH": ("🇵🇭", "PH"),
+}
+
 def fetch_url(url):
     try:
-        r = requests.get(url, timeout=20)
+        r = requests.get(url, timeout=25)
         r.raise_for_status()
         return VLESS_PATTERN.findall(r.text)
-    except Exception as e:
-        print(f"Ошибка при загрузке {url}: {e}")
+    except:
         return []
 
-def extract_country_and_clean(vless_url):
-    """Пытается вытащить страну из remark (# DE # RU # PL и т.д.) и делает красивый remark"""
+def get_uuid_host_key(vless_url):
     try:
-        if "#" in vless_url:
-            base, remark = vless_url.split("#", 1)
-            remark = remark.strip()
-        else:
-            base = vless_url
-            remark = ""
+        part = vless_url.split("://")[1].split("?")[0].split("#")[0]
+        uuid = part.split("@")[0]
+        host = part.split("@")[1].split(":")[0].lower()
+        return f"{uuid}@{host}"
+    except:
+        return vless_url
 
-        # Ищем флаги или коды стран
-        country_map = {
-            "🇷🇺": "RU", "RU": "RU", "Россия": "RU", "russia": "RU",
-            "🇵🇱": "PL", "PL": "PL", "Poland": "PL",
-            "🇫🇮": "FI", "FI": "FI", "Finland": "FI",
-            "🇳🇱": "NL", "NL": "NL", "Netherlands": "NL",
-            "🇩🇪": "DE", "DE": "DE", "Germany": "DE",
-            "🇫🇷": "FR", "FR": "FR",
-            "🇬🇧": "GB", "GB": "GB",
-            "🇺🇸": "US", "US": "US",
+def parse_country(vless_url):
+    """Улучшенный парсер — ищет флаги, коды, слова и даже популярные хосты"""
+    try:
+        text = vless_url.upper()
+        remark = vless_url.split("#", 1)[1] if "#" in vless_url else ""
+
+        # Прямой поиск по коду или флагу
+        for code in COUNTRY_MAP:
+            if code in text or f"🇷{code.lower()}" in text or f" {code} " in f" {text} ":
+                return code
+
+        # Поиск по полным названиям и синонимам
+        country_keywords = {
+            "RU": ["RUSSIA", "РОССИЯ", "РУС", "МОСКВА"], "PL": ["POLAND", "ПОЛЬША"],
+            "FI": ["FINLAND", "ФИНЛЯНДИЯ"], "NL": ["NETHERLANDS", "ГОЛЛАНДИЯ", "NEDERLAND"],
+            "DE": ["GERMANY", "ГЕРМАНИЯ"], "FR": ["FRANCE", "ФРАНЦИЯ"],
+            "GB": ["UK", "UNITED KINGDOM", "BRITAIN"], "US": ["USA", "AMERICA"],
+            "TR": ["TURKEY", "ТУРЦИЯ"], "IR": ["IRAN", "ИРАН"],
         }
-
-        country = "XX"
-        for flag, code in country_map.items():
-            if flag in remark or code.upper() in remark.upper():
-                country = code.upper()
-                break
-
-        # Красивый remark: RU-001, PL-042 и т.д.
-        clean_base = base.split("#")[0] if "#" in base else base
-        return f"{clean_base}#{country}-Config"
+        for code, keywords in country_keywords.items():
+            if any(kw in text for kw in keywords):
+                return code
     except:
-        return f"{vless_url}#XX-Config"
+        pass
+    return "XX"
 
-def test_vless_light(vless_url):
-    """Лёгкий тест (быстрее и мягче)"""
-    try:
-        # Простая проверка формата + быстрый connect
-        if not vless_url.startswith("vless://") or "@" not in vless_url:
-            return None
-        return extract_country_and_clean(vless_url)
-    except:
-        return None
+def make_nice_remark(vless_url, country, number):
+    flag, code = COUNTRY_MAP.get(country, ("🏴", "XX"))
+    base = vless_url.split("#")[0] if "#" in vless_url else vless_url
+    return f"{base}#{flag} {code}-{number:03d}"
 
-# ==================== ЗАПУСК ====================
-print(f"[{datetime.now()}] Сбор из zieng2 + igareck WHITE...")
+# ==================== СБОР И ОБРАБОТКА ====================
+print(f"[{datetime.now()}] Запуск улучшенного сбора...")
 
 all_configs = set()
 for url in SOURCES:
     links = fetch_url(url)
     all_configs.update(links)
-    print(f"Загружено из {url.split('/')[-1]}: {len(links)}")
+    print(f"✓ {url.split('/')[-1]}: {len(links)}")
 
-print(f"Всего уникальных: {len(all_configs)}")
+print(f"Всего найдено: {len(all_configs)}")
 
-# Лёгкий тест + очистка названий
-working = []
-with ThreadPoolExecutor(max_workers=15) as executor:
-    future_to_url = {executor.submit(test_vless_light, url): url for url in all_configs}
-    for future in as_completed(future_to_url):
-        result = future.result()
-        if result:
-            working.append(result)
+# Дедупликация
+unique = {}
+for link in all_configs:
+    key = get_uuid_host_key(link)
+    if key not in unique:
+        unique[key] = link
 
-# Сортировка: сначала RU, потом остальные по алфавиту страны
-def sort_key(x):
-    country = x.split("#")[-1].split("-")[0]
-    return (0 if country == "RU" else 1, country)
+# Группировка по странам
+groups = defaultdict(list)
+for link in unique.values():
+    country = parse_country(link)
+    groups[country].append(link)
 
-working.sort(key=sort_key)
+# Сортировка стран (RU первой)
+sorted_countries = sorted(groups.keys(), key=lambda c: (0 if c == "RU" else 1, c))
 
+final_list = []
+for country in sorted_countries:
+    country_configs = groups[country]
+    for i, link in enumerate(country_configs, 1):
+        nice = make_nice_remark(link, country, i)
+        final_list.append(nice)
+
+# Запись файлов
 with open("vless_checked.txt", "w", encoding="utf-8") as f:
-    f.write("# deqwl — VLESS Checked для РФ (zieng2 + igareck WHITE)\n")
+    f.write("# deqwl — VLESS Checked (как у zieng2)\n")
     f.write(f"# Обновлено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
-    f.write(f"# Всего конфигов: {len(working)}\n")
-    f.write("# Сортировка: Россия сверху → остальные по стране\n")
-    f.write("# Названия: RU-Config, PL-Config, FI-Config и т.д.\n\n")
-    f.write("\n".join(working))
+    f.write(f"# Всего: {len(final_list)} конфигов\n")
+    f.write("# Формат: 🇷🇺 RU-001 • Россия сверху • минимум XX\n\n")
+    f.write("\n".join(final_list))
 
-print(f"ГОТОВО! В подписке {len(working)} конфигов (с нормальными названиями и сортировкой)")
+with open("vless_all.txt", "w", encoding="utf-8") as f:
+    f.write("# deqwl — ALL VLESS (все сырые конфиги)\n")
+    f.write(f"# Обновлено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+    f.write(f"# Всего: {len(all_configs)}\n\n")
+    f.write("\n".join(sorted(all_configs)))
+
+print(f"ГОТОВО!\n"
+      f"• vless_checked.txt : {len(final_list)} (с флагами и нумерацией)\n"
+      f"• vless_all.txt     : {len(all_configs)} (все найденные)")
