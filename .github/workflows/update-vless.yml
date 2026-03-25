@@ -1,4 +1,4 @@
-name: Update VLESS Checked
+name: Update VLESS Checked (Xray Test)
 
 on:
   schedule:
@@ -17,9 +17,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 python-v2ray
 
-      - name: Run collector
+      - name: Run collector with Xray test
         run: python collector.py
 
       - name: Commit and push if changed
@@ -30,6 +30,6 @@ jobs:
           if git diff --quiet --cached; then
             echo "No changes"
           else
-            git commit -m "Update vless_checked.txt - $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update vless_checked.txt (Xray tested) - $(date +'%Y-%m-%d %H:%M')"
             git push
           fi
