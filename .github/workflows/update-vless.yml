@@ -2,7 +2,7 @@ name: Update VLESS Checked (Xray Test)
 
 on:
   schedule:
-    - cron: '0 * * * *'     # каждый час
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,16 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 python-v2ray
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Download latest Xray-core
+        run: |
+          XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d '"' -f 4)
+          wget -q https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip
+          unzip -q Xray-linux-64.zip xray
+          chmod +x xray
+          mv xray /usr/local/bin/xray
 
       - name: Run collector with Xray test
         run: python collector.py
@@ -30,6 +39,6 @@ jobs:
           if git diff --quiet --cached; then
             echo "No changes"
           else
-            git commit -m "Update vless_checked.txt (Xray tested) - $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update vless_checked.txt (Xray tested for RU) - $(date +'%Y-%m-%d %H:%M')"
             git push
           fi
