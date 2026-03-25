@@ -1,0 +1,35 @@
+name: Update VLESS Checked
+
+on:
+  schedule:
+    - cron: '0 * * * *'     # каждый час
+  workflow_dispatch:        # можно запустить вручную
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run collector
+        run: python collector.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add vless_checked.txt
+          if git diff --quiet --cached; then
+            echo "No changes"
+          else
+            git commit -m "Update vless_checked.txt - $(date +'%Y-%m-%d %H:%M')"
+            git push
+          fi
