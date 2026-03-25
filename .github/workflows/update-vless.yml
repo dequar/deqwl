@@ -3,7 +3,7 @@ name: Update VLESS Checked
 on:
   schedule:
     - cron: '0 * * * *'     # каждый час
-  workflow_dispatch:        # можно запустить вручную
+  workflow_dispatch:
 
 jobs:
   update:
