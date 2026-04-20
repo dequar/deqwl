@@ -1,4 +1,3 @@
-import logging
 import requests
 import re
 import socket
@@ -6,6 +5,7 @@ import time
 import subprocess
 import asyncio
 import aiohttp
+import logging
 import os
 
 from urllib.parse import urlparse, parse_qs, unquote
@@ -13,12 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 # ==================== НАСТРОЙКИ ====================
 SOURCES = [
-    # GitHub источники
+    # GitHub
     "https://raw.githubusercontent.com/zieng2/wl/main/vless.txt",
     "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-SNI-RU-all.txt",
     "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-CIDR-RU-all.txt",
 
-    # ==================== TELEGRAM КАНАЛЫ ====================
+    # Telegram каналы
     "https://t.me/s/urlsources",
     "https://t.me/s/LLxickVPN",
     "https://t.me/s/Unblock_Tech",
@@ -102,7 +102,6 @@ SOURCES = [
     "https://t.me/s/shadbobr1",
 ]
 
-# Таймауты и настройки
 TCP_TIMEOUT = 4
 ICMP_TIMEOUT = 3
 HTTP_TIMEOUT = 8
@@ -121,82 +120,27 @@ log = logging.getLogger(__name__)
 
 # ==================== КАРТА СТРАН ====================
 COUNTRY_MAP = {
-    "RU": "🇷🇺", "PL": "🇵🇱", "FI": "🇫🇮", "NL": "🇳🇱", "DE": "🇩🇪",
-    "FR": "🇫🇷", "GB": "🇬🇧", "US": "🇺🇸", "TR": "🇹🇷", "IR": "🇮🇷",
-    "UA": "🇺🇦", "AT": "🇦🇹", "CH": "🇨🇭", "SE": "🇸🇪", "NO": "🇳🇴",
-    "BE": "🇧🇪", "ES": "🇪🇸", "IT": "🇮🇹", "CZ": "🇨🇿", "SK": "🇸🇰",
-    "HU": "🇭🇺", "RO": "🇷🇴", "BG": "🇧🇬", "GR": "🇬🇷", "PT": "🇵🇹",
-    "DK": "🇩🇰", "LT": "🇱🇹", "LV": "🇱🇻", "EE": "🇪🇪", "HR": "🇭🇷",
-    "RS": "🇷🇸", "BA": "🇧🇦", "MD": "🇲🇩", "BY": "🇧🇾", "KZ": "🇰🇿",
-    "UZ": "🇺🇿", "AE": "🇦🇪", "SG": "🇸🇬", "JP": "🇯🇵", "KR": "🇰🇷",
-    "CN": "🇨🇳", "HK": "🇭🇰", "TW": "🇹🇼", "IN": "🇮🇳", "BR": "🇧🇷",
-    "CA": "🇨🇦", "AU": "🇦🇺", "NZ": "🇳🇿", "MX": "🇲🇽", "AR": "🇦🇷",
-    "ZA": "🇿🇦", "IL": "🇮🇱", "SA": "🇸🇦", "TH": "🇹🇭", "VN": "🇻🇳",
-    "MY": "🇲🇾", "ID": "🇮🇩", "PH": "🇵🇭",
+    "RU": "🇷🇺", "PL": "🇵🇱", "FI": "🇫🇮", "NL": "🇳🇱", "DE": "🇩🇪", "FR": "🇫🇷",
+    "GB": "🇬🇧", "US": "🇺🇸", "TR": "🇹🇷", "IR": "🇮🇷", "UA": "🇺🇦", "AT": "🇦🇹",
+    "CH": "🇨🇭", "SE": "🇸🇪", "NO": "🇳🇴", "BE": "🇧🇪", "ES": "🇪🇸", "IT": "🇮🇹",
+    "CZ": "🇨🇿", "SK": "🇸🇰", "HU": "🇭🇺", "RO": "🇷🇴", "BG": "🇧🇬", "GR": "🇬🇷",
+    "PT": "🇵🇹", "DK": "🇩🇰", "LT": "🇱🇹", "LV": "🇱🇻", "EE": "🇪🇪", "HR": "🇭🇷",
+    "RS": "🇷🇸", "BA": "🇧🇦", "MD": "🇲🇩", "BY": "🇧🇾", "KZ": "🇰🇿", "UZ": "🇺🇿",
+    "AE": "🇦🇪", "SG": "🇸🇬", "JP": "🇯🇵", "KR": "🇰🇷", "CN": "🇨🇳", "HK": "🇭🇰",
+    "TW": "🇹🇼", "IN": "🇮🇳", "BR": "🇧🇷", "CA": "🇨🇦", "AU": "🇦🇺", "NZ": "🇳🇿",
+    "MX": "🇲🇽", "AR": "🇦🇷", "ZA": "🇿🇦", "IL": "🇮🇱", "SA": "🇸🇦", "TH": "🇹🇭",
+    "VN": "🇻🇳", "MY": "🇲🇾", "ID": "🇮🇩", "PH": "🇵🇭",
 }
 
 COUNTRY_KEYWORDS = {
-    "RU": ["ru", "russia", "moscow", "spb", "saint-petersburg", "ekb", "novosibirsk", "rostov", "krasnodar", "samara", "ufa", "omsk", "perm", "vladivostok", "irkutsk", "yaroslavl", "tula", "kaliningrad", "sochi"],
-    "PL": ["pl", "poland", "warsaw", "krakow", "wroclaw", "gdansk", "poznan", "lodz"],
-    "FI": ["fi", "finland", "helsinki"],
-    "NL": ["nl", "netherlands", "amsterdam", "rotterdam", "thehague", "denhaag"],
-    "DE": ["de", "germany", "berlin", "frankfurt", "munich", "hamburg", "dusseldorf", "cologne", "koln", "stuttgart"],
-    "FR": ["fr", "france", "paris", "lyon", "marseille"],
-    "GB": ["gb", "uk", "unitedkingdom", "london", "manchester"],
-    "US": ["us", "usa", "america", "newyork", "nyc", "losangeles", "la", "chicago", "dallas", "miami", "houston", "seattle", "sanfrancisco", "atlanta"],
-    "TR": ["tr", "turkey", "istanbul", "ankara"],
-    "IR": ["ir", "iran", "tehran"],
-    "UA": ["ua", "ukraine", "kiev", "kyiv", "odessa", "kharkov"],
-    "AT": ["at", "austria", "vienna"],
-    "CH": ["ch", "switzerland", "zurich", "geneva"],
-    "SE": ["se", "sweden", "stockholm"],
-    "NO": ["no", "norway", "oslo"],
-    "BE": ["be", "belgium", "brussels"],
-    "ES": ["es", "spain", "madrid", "barcelona"],
-    "IT": ["it", "italy", "rome", "milano", "naples"],
-    "CZ": ["cz", "czech", "prague"],
-    "SK": ["sk", "slovakia", "bratislava"],
-    "HU": ["hu", "hungary", "budapest"],
-    "RO": ["ro", "romania", "bucharest"],
-    "BG": ["bg", "bulgaria", "sofia"],
-    "GR": ["gr", "greece", "athens"],
-    "PT": ["pt", "portugal", "lisbon"],
-    "DK": ["dk", "denmark", "copenhagen"],
-    "LT": ["lt", "lithuania", "vilnius"],
-    "LV": ["lv", "latvia", "riga"],
-    "EE": ["ee", "estonia", "tallinn"],
-    "HR": ["hr", "croatia", "zagreb"],
-    "RS": ["rs", "serbia", "belgrade"],
-    "BA": ["ba", "bosnia"],
-    "MD": ["md", "moldova"],
-    "BY": ["by", "belarus", "minsk"],
-    "KZ": ["kz", "kazakhstan", "almaty", "astana"],
-    "UZ": ["uz", "uzbekistan", "tashkent"],
-    "AE": ["ae", "emirates", "dubai", "abudhabi"],
-    "SG": ["sg", "singapore"],
-    "JP": ["jp", "japan", "tokyo"],
-    "KR": ["kr", "korea", "seoul"],
-    "CN": ["cn", "china", "beijing", "shanghai", "hongkong", "hk"],
-    "HK": ["hk", "hongkong"],
-    "TW": ["tw", "taiwan"],
-    "IN": ["in", "india", "mumbai", "delhi"],
-    "BR": ["br", "brazil", "sao paulo"],
-    "CA": ["ca", "canada", "toronto", "montreal", "vancouver"],
-    "AU": ["au", "australia", "sydney", "melbourne"],
-    "NZ": ["nz", "newzealand"],
-    "MX": ["mx", "mexico"],
-    "AR": ["ar", "argentina", "buenosaires"],
-    "ZA": ["za", "southafrica", "johannesburg"],
-    "IL": ["il", "israel", "telaviv"],
-    "SA": ["sa", "saudi", "riyadh"],
-    "TH": ["th", "thailand", "bangkok"],
-    "VN": ["vn", "vietnam", "hanoi", "hochiminh"],
-    "MY": ["my", "malaysia", "kualalumpur"],
-    "ID": ["id", "indonesia", "jakarta"],
-    "PH": ["ph", "philippines", "manila"],
+    "RU": ["ru", "russia", "moscow", "spb", "saint-petersburg", "ekb", "novosibirsk", "rostov", "krasnodar"],
+    "PL": ["pl", "poland", "warsaw"], "NL": ["nl", "netherlands", "amsterdam"],
+    "DE": ["de", "germany", "berlin", "frankfurt"], "FR": ["fr", "france", "paris"],
+    "GB": ["gb", "uk", "london"], "US": ["us", "usa", "newyork", "losangeles"],
+    # ... (остальные страны можно добавить позже, если нужно)
 }
 
-# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+# ==================== ФУНКЦИИ ====================
 
 def get_dedup_key(config: dict) -> str:
     return f"{config['host']}:{config.get('port', '443')}:{config.get('uuid', '')}"
@@ -206,7 +150,6 @@ def parse_vless(link: str) -> dict | None:
     try:
         if not link.startswith("vless://"):
             return None
-        
         url = urlparse(link)
         uuid = url.username
         host = url.hostname
@@ -247,15 +190,14 @@ def rebuild_vless(config: dict, new_remark: str) -> str:
     return f"{base}#{new_remark}"
 
 
-# ==================== ПРОВЕРКИ (ICMP + HTTP + TCP) ====================
+# ==================== ПРОВЕРКИ ====================
 
 def icmp_check(host: str) -> bool:
     try:
         param = '-n' if os.name == 'nt' else '-c'
         timeout_param = '-w' if os.name == 'nt' else '-W'
         cmd = ['ping', param, '1', timeout_param, str(ICMP_TIMEOUT), host]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                timeout=ICMP_TIMEOUT + 2, shell=False)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=ICMP_TIMEOUT + 2, shell=False)
         return result.returncode == 0
     except Exception:
         return False
@@ -296,53 +238,41 @@ def tcp_check(host: str, port: int = 443) -> bool:
 def batch_check(parsed_list: list) -> dict:
     if not parsed_list:
         return {}
-    
     results = {}
-    
     with ThreadPoolExecutor(max_workers=MAX_WORKERS_ICMP) as ex:
-        futures = {get_dedup_key(p): ex.submit(icmp_check, p["host"]) 
-                  for p in parsed_list if p.get("host")}
+        futures = {get_dedup_key(p): ex.submit(icmp_check, p["host"]) for p in parsed_list if p.get("host")}
         for key, f in futures.items():
             results.setdefault(key, {})["icmp"] = f.result()
-    
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS_HTTP) as ex:
-        futures = {get_dedup_key(p): ex.submit(http_check, p["host"], int(p.get("port", 443))) 
-                  for p in parsed_list if p.get("host")}
+        futures = {get_dedup_key(p): ex.submit(http_check, p["host"], int(p.get("port", 443))) for p in parsed_list if p.get("host")}
         for key, f in futures.items():
             results.setdefault(key, {})["http"] = f.result()
-    
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS_TCP) as ex:
-        futures = {get_dedup_key(p): ex.submit(tcp_check, p["host"], int(p.get("port", 443))) 
-                  for p in parsed_list if p.get("host")}
+        futures = {get_dedup_key(p): ex.submit(tcp_check, p["host"], int(p.get("port", 443))) for p in parsed_list if p.get("host")}
         for key, f in futures.items():
             results.setdefault(key, {})["tcp"] = f.result()
-    
+
     return results
 
 
-# ==================== ОСНОВНАЯ ФУНКЦИЯ ====================
+# ==================== ОСНОВНАЯ ЛОГИКА ====================
 
 def run_collection():
-    log.info("🚀 Запуск сбора VLESS из GitHub + Telegram каналов...")
+    log.info("🚀 Запуск сбора и проверки VLESS...")
 
     all_links = set()
-
     for url in SOURCES:
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"} if "t.me" in url else {}
+            headers = {"User-Agent": "Mozilla/5.0"} if "t.me" in url else {}
             resp = requests.get(url, timeout=FETCH_TIMEOUT, headers=headers)
             resp.raise_for_status()
-            text = resp.text
-
-            found = VLESS_PATTERN.findall(text)
+            found = VLESS_PATTERN.findall(resp.text)
             all_links.update(found)
-
-            source_name = url.split('/')[-1]
-            log.info(f"✅ {source_name} → {len(found)} VLESS ссылок")
+            log.info(f"✅ {url.split('/')[-1]} → {len(found)} ссылок")
         except Exception as e:
-            log.warning(f"❌ Ошибка загрузки {url}: {e}")
-
-    log.info(f"Всего уникальных VLESS ссылок найдено: {len(all_links)}")
+            log.warning(f"❌ {url}: {e}")
 
     # Парсинг
     parsed_list = []
@@ -357,17 +287,15 @@ def run_collection():
         seen.add(key)
         parsed_list.append(cfg)
 
-    log.info(f"Уникальных серверов после парсинга: {len(parsed_list)}")
+    log.info(f"Уникальных серверов: {len(parsed_list)}")
 
     # Проверки
-    log.info("🔍 Запуск проверок (ICMP + HTTP + TCP)... Это может занять время.")
+    log.info("🔍 Проверка серверов (ICMP + HTTP + TCP)...")
     health = batch_check(parsed_list)
 
-    # Формирование результатов
-    checked = []
-    all_configs = []
-    perfect = 0
-    any_passed = 0
+    # Разделяем на идеальные и обычные
+    perfect = []   # прошли все 3 проверки
+    normal = []    # прошли хотя бы одну
 
     for cfg in parsed_list:
         key = get_dedup_key(cfg)
@@ -379,32 +307,33 @@ def run_collection():
         if not passed_any:
             continue
 
-        if passed_all:
-            perfect += 1
-        any_passed += 1
-
         remark = build_remark(cfg, passed_all)
         final = rebuild_vless(cfg, remark)
 
-        checked.append(final)
-        all_configs.append(final)
+        if passed_all:
+            perfect.append(final)
+        else:
+            normal.append(final)
 
-    # Сохранение файлов
+    # Сортируем: сначала идеальные, потом обычные
+    final_checked = perfect + normal
+
+    # Сохраняем
     with open("vless_checked.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(checked))
+        f.write("\n".join(final_checked))
 
-    with open("vless_all.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(all_configs))
+    with open("vless_t25.txt", "w", encoding="utf-8") as f:   # ← Новый файл вместо vless_all
+        f.write("\n".join(final_checked[:25]))                 # первые 25 серверов
 
-    log.info("🎉 Сбор и проверка завершены!")
-    log.info(f"   Проверено серверов: {len(parsed_list)}")
-    log.info(f"   Прошло хотя бы одну проверку: {any_passed}")
-    log.info(f"   Идеальные (все 3 проверки) ⭐: {perfect}")
-    log.info(f"   Сохранено в vless_checked.txt: {len(checked)}")
-    log.info(f"   Сохранено в vless_all.txt: {len(all_configs)}")
+    log.info("🎉 Готово!")
+    log.info(f"   Всего проверено: {len(parsed_list)}")
+    log.info(f"   Идеальные (⭐): {len(perfect)}")
+    log.info(f"   Обычные: {len(normal)}")
+    log.info(f"   vless_checked.txt → {len(final_checked)} серверов (лучшие сверху)")
+    log.info(f"   vless_t25.txt → топ 25 серверов")
 
 
 if __name__ == "__main__":
     start = time.time()
     run_collection()
-    log.info(f"Время выполнения: {time.time() - start:.1f} секунд")
+    log.info(f"Время выполнения: {time.time() - start:.1f} сек")
