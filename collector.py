@@ -2,24 +2,19 @@ import requests
 import re
 import socket
 import time
-import subprocess
-import asyncio
-import aiohttp
+import json
 import logging
-import os
-
 from urllib.parse import urlparse, parse_qs, unquote
-from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==================== НАСТРОЙКИ ====================
 SOURCES = [
-    # GitHub
     "https://raw.githubusercontent.com/zieng2/wl/main/vless.txt",
     "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-SNI-RU-all.txt",
     "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-CIDR-RU-all.txt",
-
-    # Telegram каналы
-    "https://t.me/s/urlsources",
+         "https://t.me/s/urlsources",
     "https://t.me/s/LLxickVPN",
     "https://t.me/s/Unblock_Tech",
     "https://t.me/s/hiddifycode",
@@ -102,238 +97,346 @@ SOURCES = [
     "https://t.me/s/shadbobr1",
 ]
 
-TCP_TIMEOUT = 4
-ICMP_TIMEOUT = 3
-HTTP_TIMEOUT = 8
-FETCH_TIMEOUT = 35
+TCP_TIMEOUT = 4          # секунды на TCP-проверку
+FETCH_TIMEOUT = 25       # секунды на загрузку источника
+MAX_WORKERS_FETCH = 5    # параллельных загрузок источников
+MAX_WORKERS_TCP = 50     # параллельных TCP-проверок
 
-MAX_WORKERS_TCP = 50
-MAX_WORKERS_ICMP = 40
-MAX_WORKERS_HTTP = 25
-
-HTTP_TEST_URL = "http://www.gstatic.com/generate_204"
-
-VLESS_PATTERN = re.compile(r'vless://[A-Za-z0-9\-._\~:/?#\[\]@!$&\'()*+,;=%]+', re.IGNORECASE)
+VLESS_PATTERN = re.compile(r'vless://[A-Za-z0-9\-._~:/?#\[\]@!$&\'()*+,;=%]+')
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
 
 # ==================== КАРТА СТРАН ====================
 COUNTRY_MAP = {
-    "RU": "🇷🇺", "PL": "🇵🇱", "FI": "🇫🇮", "NL": "🇳🇱", "DE": "🇩🇪", "FR": "🇫🇷",
-    "GB": "🇬🇧", "US": "🇺🇸", "TR": "🇹🇷", "IR": "🇮🇷", "UA": "🇺🇦", "AT": "🇦🇹",
-    "CH": "🇨🇭", "SE": "🇸🇪", "NO": "🇳🇴", "BE": "🇧🇪", "ES": "🇪🇸", "IT": "🇮🇹",
-    "CZ": "🇨🇿", "SK": "🇸🇰", "HU": "🇭🇺", "RO": "🇷🇴", "BG": "🇧🇬", "GR": "🇬🇷",
-    "PT": "🇵🇹", "DK": "🇩🇰", "LT": "🇱🇹", "LV": "🇱🇻", "EE": "🇪🇪", "HR": "🇭🇷",
-    "RS": "🇷🇸", "BA": "🇧🇦", "MD": "🇲🇩", "BY": "🇧🇾", "KZ": "🇰🇿", "UZ": "🇺🇿",
-    "AE": "🇦🇪", "SG": "🇸🇬", "JP": "🇯🇵", "KR": "🇰🇷", "CN": "🇨🇳", "HK": "🇭🇰",
-    "TW": "🇹🇼", "IN": "🇮🇳", "BR": "🇧🇷", "CA": "🇨🇦", "AU": "🇦🇺", "NZ": "🇳🇿",
-    "MX": "🇲🇽", "AR": "🇦🇷", "ZA": "🇿🇦", "IL": "🇮🇱", "SA": "🇸🇦", "TH": "🇹🇭",
-    "VN": "🇻🇳", "MY": "🇲🇾", "ID": "🇮🇩", "PH": "🇵🇭",
+    "RU": "🇷🇺", "PL": "🇵🇱", "FI": "🇫🇮", "NL": "🇳🇱",
+    "DE": "🇩🇪", "FR": "🇫🇷", "GB": "🇬🇧", "US": "🇺🇸",
+    "TR": "🇹🇷", "IR": "🇮🇷", "UA": "🇺🇦", "AT": "🇦🇹",
+    "CH": "🇨🇭", "SE": "🇸🇪", "NO": "🇳🇴", "BE": "🇧🇪",
+    "ES": "🇪🇸", "IT": "🇮🇹", "CZ": "🇨🇿", "SK": "🇸🇰",
+    "HU": "🇭🇺", "RO": "🇷🇴", "BG": "🇧🇬", "GR": "🇬🇷",
+    "PT": "🇵🇹", "DK": "🇩🇰", "LT": "🇱🇹", "LV": "🇱🇻",
+    "EE": "🇪🇪", "HR": "🇭🇷", "RS": "🇷🇸", "BA": "🇧🇦",
+    "MD": "🇲🇩", "BY": "🇧🇾", "KZ": "🇰🇿", "UZ": "🇺🇿",
+    "AE": "🇦🇪", "SG": "🇸🇬", "JP": "🇯🇵", "KR": "🇰🇷",
+    "CN": "🇨🇳", "HK": "🇭🇰", "TW": "🇹🇼", "IN": "🇮🇳",
+    "BR": "🇧🇷", "CA": "🇨🇦", "AU": "🇦🇺", "NZ": "🇳🇿",
+    "MX": "🇲🇽", "AR": "🇦🇷", "ZA": "🇿🇦", "IL": "🇮🇱",
+    "SA": "🇸🇦", "TH": "🇹🇭", "VN": "🇻🇳", "MY": "🇲🇾",
+    "ID": "🇮🇩", "PH": "🇵🇭",
 }
 
+# Синонимы для определения страны по тексту ремарки
 COUNTRY_KEYWORDS = {
-    "RU": ["ru", "russia", "moscow", "spb", "saint-petersburg", "ekb", "novosibirsk", "rostov", "krasnodar"],
-    "PL": ["pl", "poland", "warsaw"], "NL": ["nl", "netherlands", "amsterdam"],
-    "DE": ["de", "germany", "berlin", "frankfurt"], "FR": ["fr", "france", "paris"],
-    "GB": ["gb", "uk", "london"], "US": ["us", "usa", "newyork", "losangeles"],
-    # ... (остальные страны можно добавить позже, если нужно)
+    "RU": ["RUSSIA", "РОССИЯ", "РУС", "МОСКВА", "MOSCOW", "ПИТЕР", "SPBU", "SAINT PETER"],
+    "PL": ["POLAND", "ПОЛЬША", "WARSAW", "ВАРШАВА"],
+    "FI": ["FINLAND", "ФИНЛЯНДИЯ", "HELSINKI"],
+    "NL": ["NETHERLANDS", "ГОЛЛАНДИЯ", "NEDERLAND", "AMSTERDAM"],
+    "DE": ["GERMANY", "ГЕРМАНИЯ", "BERLIN", "FRANKFURT", "БЕРЛИН"],
+    "FR": ["FRANCE", "ФРАНЦИЯ", "PARIS", "ПАРИЖ"],
+    "GB": ["UK", "UNITED KINGDOM", "BRITAIN", "LONDON", "ЛОНДОН"],
+    "US": ["USA", "AMERICA", "UNITED STATES", "NEW YORK", "CHICAGO", "LOS ANGELES"],
+    "TR": ["TURKEY", "ТУРЦИЯ", "ISTANBUL", "СТАМБУЛ", "ANKARA"],
+    "IR": ["IRAN", "ИРАН", "TEHRAN", "ТЕГЕРАН"],
+    "UA": ["UKRAINE", "УКРАИНА", "KYIV", "KIEV", "ХАРЬКОВ"],
+    "CH": ["SWITZERLAND", "ШВЕЙЦАРИЯ", "ZURICH", "ЦЮРИХ"],
+    "SE": ["SWEDEN", "ШВЕЦИЯ", "STOCKHOLM"],
+    "NO": ["NORWAY", "НОРВЕГИЯ", "OSLO"],
+    "AT": ["AUSTRIA", "АВСТРИЯ", "VIENNA", "ВЕНА"],
+    "BE": ["BELGIUM", "БЕЛЬГИЯ", "BRUSSELS"],
+    "ES": ["SPAIN", "ИСПАНИЯ", "MADRID"],
+    "IT": ["ITALY", "ИТАЛИЯ", "ROME", "MILAN", "РИМ"],
+    "CZ": ["CZECH", "ЧЕХИЯ", "PRAGUE", "ПРАГА"],
+    "HU": ["HUNGARY", "ВЕНГРИЯ", "BUDAPEST"],
+    "RO": ["ROMANIA", "РУМЫНИЯ", "BUCHAREST"],
+    "BG": ["BULGARIA", "БОЛГАРИЯ", "SOFIA"],
+    "KZ": ["KAZAKHSTAN", "КАЗАХСТАН", "ALMATY", "АЛМА"],
+    "BY": ["BELARUS", "БЕЛАРУСЬ", "MINSK", "МИНСК"],
+    "AE": ["UAE", "EMIRATES", "ЭМИРАТЫ", "DUBAI", "ДУБАЙ", "ABU DHABI"],
+    "SG": ["SINGAPORE", "СИНГАПУР"],
+    "JP": ["JAPAN", "ЯПОНИЯ", "TOKYO", "ТОКИО", "OSAKA"],
+    "KR": ["KOREA", "КОРЕЯ", "SEOUL", "СЕУЛ"],
+    "CN": ["CHINA", "КИТАЙ", "BEIJING", "SHANGHAI", "ПЕКИН"],
+    "HK": ["HONG KONG", "ГОНКОНГ", "HONGKONG"],
+    "TW": ["TAIWAN", "ТАЙВАНЬ"],
+    "IN": ["INDIA", "ИНДИЯ", "MUMBAI", "DELHI"],
+    "BR": ["BRAZIL", "БРАЗИЛИЯ", "SAO PAULO"],
+    "CA": ["CANADA", "КАНАДА", "TORONTO", "VANCOUVER"],
+    "AU": ["AUSTRALIA", "АВСТРАЛИЯ", "SYDNEY", "MELBOURNE"],
+    "ID": ["INDONESIA", "ИНДОНЕЗИЯ", "JAKARTA"],
+    "TH": ["THAILAND", "ТАИЛАНД", "BANGKOK", "БАНГКОК"],
+    "VN": ["VIETNAM", "ВЬЕТНАМ", "HANOI"],
+    "MY": ["MALAYSIA", "МАЛАЙЗИЯ", "KUALA LUMPUR"],
 }
 
-# ==================== ФУНКЦИИ ====================
+# IP-диапазоны, которые НЕ принадлежат России
+# Используются, чтобы не помечать зарубежные IP как RU
+KNOWN_NON_RU_SUBNETS = []  # резерв для будущего расширения
 
-def get_dedup_key(config: dict) -> str:
-    return f"{config['host']}:{config.get('port', '443')}:{config.get('uuid', '')}"
-
-
-def parse_vless(link: str) -> dict | None:
+# ==================== ЗАГРУЗКА ИСТОЧНИКОВ ====================
+def fetch_url(url: str) -> list[str]:
     try:
-        if not link.startswith("vless://"):
-            return None
-        url = urlparse(link)
-        uuid = url.username
-        host = url.hostname
-        port = url.port or 443
-        query = parse_qs(url.query)
+        r = requests.get(url, timeout=FETCH_TIMEOUT)
+        r.raise_for_status()
+        found = VLESS_PATTERN.findall(r.text)
+        log.info(f"  ✓ {url.split('/')[-1]}: {len(found)} конфигов")
+        return found
+    except Exception as e:
+        log.warning(f"  ✗ {url.split('/')[-1]}: {e}")
+        return []
 
-        return {
-            "uuid": uuid,
-            "host": host,
-            "port": str(port),
-            "type": query.get("type", ["tcp"])[0],
-            "security": query.get("security", ["none"])[0],
-            "sni": query.get("sni", [host])[0] if query.get("sni") else host,
-            "fp": query.get("fp", [""])[0],
-            "alpn": query.get("alpn", [""])[0],
-            "remarks": unquote(url.fragment) if url.fragment else "",
-            "original": link
+def fetch_all(sources: list[str]) -> set[str]:
+    configs = set()
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS_FETCH) as ex:
+        futures = {ex.submit(fetch_url, url): url for url in sources}
+        for future in as_completed(futures):
+            configs.update(future.result())
+    return configs
+
+# ==================== ПАРСИНГ VLESS ====================
+def parse_vless(vless_url: str) -> dict:
+    """Разбирает VLESS-ссылку на составные части."""
+    result = {
+        "raw": vless_url,
+        "uuid": "",
+        "host": "",
+        "port": 0,
+        "remark": "",
+        "params": {},
+    }
+    try:
+        body = vless_url[len("vless://"):]
+        remark = ""
+        if "#" in body:
+            body, remark = body.rsplit("#", 1)
+            remark = unquote(remark)
+        result["remark"] = remark
+
+        params_str = ""
+        if "?" in body:
+            body, params_str = body.split("?", 1)
+
+        # uuid@host:port
+        uuid, hostport = body.rsplit("@", 1)
+        result["uuid"] = uuid
+
+        # IPv6 в квадратных скобках
+        if hostport.startswith("["):
+            bracket_end = hostport.index("]")
+            result["host"] = hostport[1:bracket_end].lower()
+            port_part = hostport[bracket_end + 1:]
+            result["port"] = int(port_part.lstrip(":")) if ":" in port_part else 443
+        else:
+            parts = hostport.rsplit(":", 1)
+            result["host"] = parts[0].lower()
+            result["port"] = int(parts[1]) if len(parts) == 2 else 443
+
+        # query-параметры
+        result["params"] = {
+            k: v[0] for k, v in parse_qs(params_str).items()
         }
-    except Exception:
-        return None
+    except Exception as e:
+        log.debug(f"parse_vless error: {e} — {vless_url[:80]}")
+    return result
 
+def get_dedup_key(parsed: dict) -> str:
+    return f"{parsed['uuid']}@{parsed['host']}"
 
-def build_remark(config: dict, is_perfect: bool = False) -> str:
-    host_lower = config.get("host", "").lower()
-    country_code = "??"
+# ==================== ОПРЕДЕЛЕНИЕ ПРОТОКОЛА ====================
+def detect_protocol(parsed: dict) -> str:
+    """Возвращает метку типа: Reality, WS, gRPC, TCP и т.д."""
+    p = parsed["params"]
+
+    flow = p.get("flow", "")
+    security = p.get("security", "").lower()
+    sni = p.get("sni", p.get("serverName", "")).lower()
+    fp = p.get("fp", "").lower()
+    pbk = p.get("pbk", "")      # public key — признак Reality
+    net = p.get("type", p.get("network", "tcp")).lower()
+
+    if pbk or security == "reality":
+        return "Reality"
+    if security in ("tls", "xtls"):
+        if net == "ws":
+            return "WS+TLS"
+            
+        if net == "grpc":
+            return "gRPC+TLS"
+        return "TLS"
+    if net == "ws":
+        return "WS"
+    if net == "grpc":
+        return "gRPC"
+    if net in ("tcp", "") or not net:
+        return "TCP"
+    return net.upper()
+
+# ==================== ОПРЕДЕЛЕНИЕ СТРАНЫ ====================
+def parse_country(parsed: dict) -> str:
+    """
+    Порядок приоритетов:
+    1. Явный ISO-код в ремарке (ровно 2 буквы, отдельным словом или с разделителем)
+    2. Поиск по синонимам в ремарке и хосте
+    3. Поиск кода страны в ремарке (осторожно — избегаем ложных совпадений)
+    4. XX — неизвестно
+    """
+    remark_raw = parsed.get("remark", "")
+    host = parsed.get("host", "")
+
+    remark = remark_raw.upper()
+    host_up = host.upper()
+    combined = f"{remark} {host_up}"
+
+    # 1. Явный ISO-код в ремарке: отдельное слово, в начале, с разделителем
+    #    Ищем паттерн вида RU-, -RU-, _RU_, [RU], (RU), "RU ", " RU "
+    iso_pattern = re.compile(r'(?<![A-Z])([A-Z]{2})(?![A-Z])')
+    for match in iso_pattern.finditer(remark):
+        code = match.group(1)
+        # Пропускаем слова, которые не являются кодами стран
+        if code in COUNTRY_MAP:
+            # Дополнительная проверка: не должно быть в середине обычного слова
+            start = match.start()
+            end = match.end()
+            before = remark[start - 1] if start > 0 else " "
+            after = remark[end] if end < len(remark) else " "
+            if not before.isalpha() or not after.isalpha():
+                return code
+
+    # 2. Поиск по синонимам
     for code, keywords in COUNTRY_KEYWORDS.items():
-        if any(kw in host_lower for kw in keywords):
-            country_code = code
-            break
-    flag = COUNTRY_MAP.get(country_code, "🌐")
-    base = f"{flag} {config.get('host', 'unknown')}:{config.get('port', '443')}"
-    return f"⭐ {base}" if is_perfect else base
+        if any(kw in combined for kw in keywords):
+            return code
 
+    # 3. Поиск кода страны в хосте (например, de.example.com, nl-server.vpn.io)
+    host_parts = re.split(r'[\.\-_]', host_up)
+    for part in host_parts:
+        if len(part) == 2 and part in COUNTRY_MAP and part not in ("IS", "AS", "BY", "AM", "AN"):
+            return part
 
-def rebuild_vless(config: dict, new_remark: str) -> str:
-    original = config["original"]
-    base = original.split("#")[0] if "#" in original else original
-    return f"{base}#{new_remark}"
+    return "XX"
 
-
-# ==================== ПРОВЕРКИ ====================
-
-def icmp_check(host: str) -> bool:
+# ==================== TCP-ПРОВЕРКА ====================
+def tcp_check(host: str, port: int, timeout: float = TCP_TIMEOUT) -> bool:
+    """Проверяет, открыт ли TCP-порт. True = соединение установлено."""
     try:
-        param = '-n' if os.name == 'nt' else '-c'
-        timeout_param = '-w' if os.name == 'nt' else '-W'
-        cmd = ['ping', param, '1', timeout_param, str(ICMP_TIMEOUT), host]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=ICMP_TIMEOUT + 2, shell=False)
-        return result.returncode == 0
+        # Резолвим хост один раз
+        addr_info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addr_info:
+            return False
+        family, socktype, proto, canonname, sockaddr = addr_info[0]
+        with socket.socket(family, socktype) as s:
+            s.settimeout(timeout)
+            s.connect(sockaddr)
+        return True
     except Exception:
         return False
 
-
-async def async_http_check(host: str, port: int = 443) -> bool:
-    try:
-        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(HTTP_TEST_URL, allow_redirects=True) as resp:
-                return resp.status in (200, 204, 301, 302)
-    except Exception:
-        return False
-
-
-def http_check(host: str, port: int = 443) -> bool:
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(async_http_check(host, port))
-        loop.close()
-        return result
-    except Exception:
-        return False
-
-
-def tcp_check(host: str, port: int = 443) -> bool:
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(TCP_TIMEOUT)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        return result == 0
-    except Exception:
-        return False
-
-
-def batch_check(parsed_list: list) -> dict:
-    if not parsed_list:
-        return {}
+def tcp_check_batch(parsed_list: list[dict]) -> dict[str, bool]:
+    """Параллельная проверка всех конфигов. Возвращает {dedup_key: bool}."""
     results = {}
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS_ICMP) as ex:
-        futures = {get_dedup_key(p): ex.submit(icmp_check, p["host"]) for p in parsed_list if p.get("host")}
-        for key, f in futures.items():
-            results.setdefault(key, {})["icmp"] = f.result()
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS_HTTP) as ex:
-        futures = {get_dedup_key(p): ex.submit(http_check, p["host"], int(p.get("port", 443))) for p in parsed_list if p.get("host")}
-        for key, f in futures.items():
-            results.setdefault(key, {})["http"] = f.result()
+    def check_one(p):
+        key = get_dedup_key(p)
+        ok = tcp_check(p["host"], p["port"])
+        return key, ok
 
+    log.info(f"\n[TCP] Проверяю {len(parsed_list)} хостов (таймаут {TCP_TIMEOUT}с)...")
     with ThreadPoolExecutor(max_workers=MAX_WORKERS_TCP) as ex:
-        futures = {get_dedup_key(p): ex.submit(tcp_check, p["host"], int(p.get("port", 443))) for p in parsed_list if p.get("host")}
-        for key, f in futures.items():
-            results.setdefault(key, {})["tcp"] = f.result()
+        futures = {ex.submit(check_one, p): p for p in parsed_list}
+        done = 0
+        for future in as_completed(futures):
+            key, ok = future.result()
+            results[key] = ok
+            done += 1
+            if done % 50 == 0 or done == len(parsed_list):
+                log.info(f"  {done}/{len(parsed_list)}...")
 
+    alive = sum(1 for v in results.values() if v)
+    log.info(f"[TCP] Живых: {alive}/{len(parsed_list)}")
     return results
 
+# ==================== ФОРМИРОВАНИЕ РЕМАРКИ ====================
+def make_remark(parsed: dict, country: str, proto: str, number: int, alive: bool) -> str:
+    flag = COUNTRY_MAP.get(country, "🏴")
+    status = "✓" if alive else "✗"
+    base = parsed["raw"].split("#")[0] if "#" in parsed["raw"] else parsed["raw"]
+    return f"{base}#{status} {flag} {country}-{number:03d} [{proto}]"
 
-# ==================== ОСНОВНАЯ ЛОГИКА ====================
-
-def run_collection():
-    log.info("🚀 Запуск сбора и проверки VLESS...")
-
-    all_links = set()
-    for url in SOURCES:
-        try:
-            headers = {"User-Agent": "Mozilla/5.0"} if "t.me" in url else {}
-            resp = requests.get(url, timeout=FETCH_TIMEOUT, headers=headers)
-            resp.raise_for_status()
-            found = VLESS_PATTERN.findall(resp.text)
-            all_links.update(found)
-            log.info(f"✅ {url.split('/')[-1]} → {len(found)} ссылок")
-        except Exception as e:
-            log.warning(f"❌ {url}: {e}")
-
-    # Парсинг
-    parsed_list = []
-    seen = set()
-    for link in all_links:
-        cfg = parse_vless(link)
-        if not cfg or not cfg.get("host"):
-            continue
-        key = get_dedup_key(cfg)
-        if key in seen:
-            continue
-        seen.add(key)
-        parsed_list.append(cfg)
-
-    log.info(f"Уникальных серверов: {len(parsed_list)}")
-
-    # Проверки
-    log.info("🔍 Проверка серверов (ICMP + HTTP + TCP)...")
-    health = batch_check(parsed_list)
-
-    # Разделяем на идеальные и обычные
-    perfect = []   # прошли все 3 проверки
-    normal = []    # прошли хотя бы одну
-
-    for cfg in parsed_list:
-        key = get_dedup_key(cfg)
-        h = health.get(key, {"icmp": False, "http": False, "tcp": False})
-
-        passed_any = h["icmp"] or h["http"] or h["tcp"]
-        passed_all = h["icmp"] and h["http"] and h["tcp"]
-
-        if not passed_any:
-            continue
-
-        remark = build_remark(cfg, passed_all)
-        final = rebuild_vless(cfg, remark)
-
-        if passed_all:
-            perfect.append(final)
-        else:
-            normal.append(final)
-
-    # Сортируем: сначала идеальные, потом обычные
-    final_checked = perfect + normal
-
-    # Сохраняем
-    with open("vless_checked.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(final_checked))
-
-    with open("vless_t25.txt", "w", encoding="utf-8") as f:   # ← Новый файл вместо vless_all
-        f.write("\n".join(final_checked[:25]))                 # первые 25 серверов
-
-    log.info("🎉 Готово!")
-    log.info(f"   Всего проверено: {len(parsed_list)}")
-    log.info(f"   Идеальные (⭐): {len(perfect)}")
-    log.info(f"   Обычные: {len(normal)}")
-    log.info(f"   vless_checked.txt → {len(final_checked)} серверов (лучшие сверху)")
-    log.info(f"   vless_t25.txt → топ 25 серверов")
-
-
+# ==================== ГЛАВНЫЙ БЛОК ====================
 if __name__ == "__main__":
-    start = time.time()
-    run_collection()
-    log.info(f"Время выполнения: {time.time() - start:.1f} сек")
+    log.info(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Запуск сборщика VLESS...\n")
+
+    # 1. Загрузка
+    log.info("=== Загрузка источников ===")
+    raw_configs = fetch_all(SOURCES)
+    log.info(f"Всего найдено (с дублями): {len(raw_configs)}\n")
+
+    # 2. Парсинг и дедупликация
+    log.info("=== Парсинг и дедупликация ===")
+    unique: dict[str, dict] = {}
+    for raw in raw_configs:
+        parsed = parse_vless(raw)
+        if not parsed["host"]:
+            continue
+        key = get_dedup_key(parsed)
+        if key not in unique:
+            unique[key] = parsed
+    log.info(f"Уникальных конфигов: {len(unique)}\n")
+
+    # 3. TCP-проверка
+    parsed_list = list(unique.values())
+    tcp_results = tcp_check_batch(parsed_list)
+
+    # 4. Определение страны и протокола
+    log.info("\n=== Группировка по странам ===")
+    groups: dict[str, list] = defaultdict(list)
+    for p in parsed_list:
+        country = parse_country(p)
+        proto = detect_protocol(p)
+        key = get_dedup_key(p)
+        alive = tcp_results.get(key, False)
+        groups[country].append((p, proto, alive))
+
+    for country, items in sorted(groups.items()):
+        alive_count = sum(1 for _, _, ok in items if ok)
+        log.info(f"  {COUNTRY_MAP.get(country, '🏴')} {country}: {len(items)} ({alive_count} живых)")
+
+    # 5. Сортировка: сначала RU, потом остальные; внутри страны — живые вперёд
+    sorted_countries = sorted(
+        groups.keys(),
+        key=lambda c: (0 if c == "RU" else (1 if c != "XX" else 2), c)
+    )
+
+    checked_list = []   # только живые, с пометками
+    all_list = []       # все (живые + мёртвые)
+
+    for country in sorted_countries:
+        items = groups[country]
+        # Живые сначала
+        items_sorted = sorted(items, key=lambda x: (0 if x[2] else 1))
+        for i, (p, proto, alive) in enumerate(items_sorted, 1):
+            remark = make_remark(p, country, proto, i, alive)
+            all_list.append(remark)
+            if alive:
+                checked_list.append(remark)
+
+    # 6. Запись файлов
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open("vless_checked.txt", "w", encoding="utf-8") as f:
+        f.write(f"# VLESS Checked — только живые конфиги\n")
+        f.write(f"# Обновлено: {now_str}\n")
+        f.write(f"# Всего живых: {len(checked_list)}\n")
+        f.write("# Формат: ✓/✗ 🇷🇺 RU-001 [Reality]\n\n")
+        f.write("\n".join(checked_list))
+
+    with open("vless_all.txt", "w", encoding="utf-8") as f:
+        f.write(f"# VLESS All — все конфиги (живые и мёртвые)\n")
+        f.write(f"# Обновлено: {now_str}\n")
+        f.write(f"# Всего: {len(all_list)} (живых: {len(checked_list)})\n\n")
+        f.write("\n".join(all_list))
+
+    log.info(f"\n=== ГОТОВО ===")
+    log.info(f"• vless_checked.txt : {len(checked_list)} живых конфигов")
+    log.info(f"• vless_all.txt     : {len(all_list)} всего")
+
