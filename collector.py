@@ -10,13 +10,13 @@ SOURCES = [
 ]
 
 OUTPUT_FILE = "deray.txt"
+# Улучшенный паттерн для захвата всех частей VLESS
 VLESS_PATTERN = re.compile(r'vless://([A-Za-z0-9\-]+)@([A-Za-z0-9\-._~\[\]:]+)\?([A-Za-z0-9\-._~:/?#\[\]@!$&\'()*+,;=%]+)(?:#(.+))?')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-# Словарь для определения страны (ключевые слова в хосте или старом названии)
 GEO_DB = {
     "RU": ["ru", "russia", "moscow", "mow", "spb", "россия", "москва", "пб"],
     "DE": ["de", "germany", "frankfurt", "fra", "германия", "франкфурт"],
@@ -30,51 +30,41 @@ GEO_DB = {
 # ==================== ЛОГИКА ====================
 
 def get_country_code(host, old_remark):
-    """
-    Лучший способ определения страны без внешних API: 
-    анализ хоста и метаданных.
-    """
     target = f"{host} {old_remark}".lower()
-    
-    # 1. Ищем явные ISO-коды в субдоменах (напр. ru.server.com)
     host_parts = host.lower().split('.')
     for part in host_parts:
         if part.upper() in GEO_DB and len(part) == 2:
             return part.upper()
-            
-    # 2. Ищем по ключевым словам
     for code, keywords in GEO_DB.items():
         if any(kw in target for kw in keywords):
             return code
-            
     return "XX"
 
 def process():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Сбор конфигов начат...")
     
-    unique_configs = {} # Ключ: (uuid, host, port), Значение: ссылка без ремарки
+    unique_configs = {} 
     
     for url in SOURCES:
         try:
             response = requests.get(url, headers=HEADERS, timeout=15)
             response.raise_for_status()
             
-            # Ищем все vless ссылки
             raw_links = re.findall(r'vless://[^\s]+', response.text)
             
             for link in raw_links:
                 match = VLESS_PATTERN.match(link)
                 if match:
+                    # Извлекаем компоненты
                     uuid = match.group(1)
                     host_port = match.group(2)
                     params = match.group(3)
                     old_remark = unquote(match.group(4)) if match.group(4) else ""
                     
-                    # Ключ для дедупликации (уникальный сервер)
+                    # Ключ дедупликации
                     key = (uuid, host_port)
                     
                     if key not in unique_configs:
-                        # Сохраняем "тело" ссылки и данные для гео
                         unique_configs[key] = {
                             "body": f"vless://{uuid}@{host_port}?{params}",
                             "host": host_port.split(':')[0],
@@ -83,24 +73,24 @@ def process():
         except Exception as e:
             print(f"Ошибка при загрузке {url}: {e}")
 
-    # Формируем итоговый список
     final_list = []
-    for index, (key, data) in enumerate(unique_configs.values(), 1):
-        country = get_country_code(data['host'], data['old_remark'])
-        
-        # Новый формат имени: [Страна] #[Номер]
-        new_name = f"{country} #{index:03d}"
-        full_link = f"{data['body']}#{new_name}"
-        final_list.append(full_link)
+    # Сортировка по странам (RU в начале, XX в конце)
+    sorted_items = sorted(
+        unique_configs.values(),
+        key=lambda x: (0 if get_country_code(x['host'], x['old_remark']) == "RU" else (2 if get_country_code(x['host'], x['old_remark']) == "XX" else 1))
+    )
 
-    # Сохранение
+    for index, data in enumerate(sorted_items, 1):
+        country = get_country_code(data['host'], data['old_remark'])
+        new_name = f"{country} #{index:03d}"
+        final_list.append(f"{data['body']}#{new_name}")
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write("\n".join(final_list))
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Готово!")
-    print(f"Обработано источников: {len(SOURCES)}")
     print(f"Уникальных конфигов сохранено в {OUTPUT_FILE}: {len(final_list)}")
 
 if __name__ == "__main__":
-   
-process()
+ 
+    process()
