@@ -1,6 +1,7 @@
 # deqwl — VLESS Checked Subscription (оптимизировано для РФ)
 
 **Ссылка для импорта:** https://raw.githubusercontent.com/dequar/deqwl/refs/heads/main/deray.txt
+
 **Как импортировать:**
 - v2rayNG / Nekobox / Hiddify → Добавить подписку → вставить ссылку выше
 - v2rayN (Windows) → Subscription group → Add URL
