@@ -1,16 +1,17 @@
-name: Update VLESS Checked
+name: Update Deray Configs
 
 on:
   schedule:
-    - cron: '0 * * * *'     # каждый час
-  workflow_dispatch:
+    - cron: '0 * * * *'     # Запуск каждый час
+  workflow_dispatch:        # Возможность ручного запуска
 
 jobs:
   update:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -20,18 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Download latest Xray-core
-        run: |
-          XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name"' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-          if [ -z "$XRAY_VERSION" ]; then XRAY_VERSION="v1.8.24"; fi
-          wget -q https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip -O xray.zip
-          unzip -q xray.zip xray
-          chmod +x xray
-          sudo mv xray /usr/local/bin/xray
-          rm -f xray.zip
-          echo "Xray установлен: $(xray version | head -n 1)"
+          pip install requests
 
       - name: Run collector
         run: python collector.py
@@ -40,10 +30,12 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add vless_checked.txt vless_all.txt
+          # Добавляем только новый итоговый файл
+          git add deray.txt
           if git diff --quiet --cached; then
-            echo "No changes"
+            echo "No changes to commit"
           else
-            git commit -m "Update vless_checked.txt + vless_all.txt - $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update deray.txt - $(date +'%Y-%m-%d %H:%M')"
             git push
+      
           fi
