@@ -19,7 +19,7 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-# Расширенная база для определения стран
+# База для определения стран
 GEO_DB = {
     "RU": ["ru", "russia", "moscow", "mow", "spb", "россия", "москва", "пб", "vdsina", "mcl"],
     "DE": ["de", "germany", "frankfurt", "fra", "германия", "франкфурт", "hetzner"],
@@ -31,7 +31,7 @@ GEO_DB = {
     "PL": ["pl", "poland", "warsaw", "польша", "варшава"]
 }
 
-# ==================== ФЛАГИ СТРАН ====================
+# Флаги стран
 FLAGS = {
     "RU": "🇷🇺",
     "DE": "🇩🇪",
@@ -50,22 +50,23 @@ def get_country_code(host, old_remark):
     """Определяет страну по хосту или старой ремарке."""
     target = f"{host} {old_remark}".lower()
     
-    # 1. Проверка субдоменов
+    # Проверка субдоменов
     host_parts = host.lower().split('.')
     for part in host_parts:
         if part.upper() in GEO_DB and len(part) == 2:
             return part.upper()
             
-    # 2. Поиск по ключевым словам
+    # Поиск по ключевым словам
     for code, keywords in GEO_DB.items():
         if any(kw in target for kw in keywords):
             return code
             
     return "XX"
 
+
 def process():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Сбор уникальных конфигов...")
-    
+
     unique_configs = {} 
     
     for url in SOURCES:
@@ -87,14 +88,16 @@ def process():
                     
                     if key not in unique_configs:
                         country = get_country_code(host_port.split(':')[0], old_remark)
+                        # Сохраняем только базовую часть без старой ремарки
+                        base_url = f"vless://{uuid}@{host_port}?{params}"
                         unique_configs[key] = {
-                            "base_url": f"vless://{uuid}@{host_port}?{params}",
+                            "base_url": base_url,
                             "country": country
                         }
         except Exception as e:
             print(f"Пропуск источника {url}: {e}")
 
-    # Сортировка: RU сверху → остальные по алфавиту → XX в конце
+    # Сортировка: Россия сверху, потом остальные, XX в конце
     sorted_items = sorted(
         unique_configs.values(),
         key=lambda x: (
@@ -103,29 +106,32 @@ def process():
         )
     )
 
-    # === Формирование чистых названий ===
+    # === Максимально чистые названия ===
     final_links = []
     
     for index, data in enumerate(sorted_items, 1):
         flag = FLAGS.get(data['country'], "🌍")
-        # Максимально чистый формат: [флаг] [страна] - [номер]
         new_name = f"{flag} {data['country']} - {index:03d}"
-        final_links.append(f"{data['base_url']}#{new_name}")
+        
+        # Важно: берём base_url (без старой ремарки) и добавляем новое имя
+        clean_link = f"{data['base_url']}#{new_name}"
+        final_links.append(clean_link)
 
     if not final_links:
         print("Конфиги не найдены!")
         return
 
-    # Base64 кодирование для подписки
+    # Base64 кодирование
     raw_text = "\n".join(final_links)
     b64_data = base64.b64encode(raw_text.encode('utf-8')).decode('utf-8')
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(b64_data)
 
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Успех!")
-    print(f"Создана подписка в '{OUTPUT_FILE}'")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Успех! Чистые названия применены.")
+    print(f"Файл: '{OUTPUT_FILE}'")
     print(f"Всего уникальных серверов: {len(final_links)}")
+
 
 if __name__ == "__main__":
     process()
