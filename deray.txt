@@ -1,6 +1,1 @@
-  "vless://00000000-0000-0000-0000-000000000001@127.0.0.1:443?encryption=none&security=none&type=tcp#Сабка сломана",
-        "vless://00000000-0000-0000-0000-000000000002@127.0.0.1:443?encryption=none&security=none&type=tcp#и не работает",
-        "vless://00000000-0000-0000-0000-000000000003@127.0.0.1:443?encryption=none&security=none&type=tcp#используйте GUI-collector",
-        "vless://00000000-0000-0000-0000-000000000004@127.0.0.1:443?encryption=none&security=none&type=tcp#из репозитория"
-
-"vless://00000000-0000-0000-0000-000000000004@127.0.0.1:443?encryption=none&security=none&type=tcp#https://github.com/dequar/deqwl"
+dmxlc3M6Ly8wMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDFAMTI3LjAuMC4xOjQ0Mz9lbmNyeXB0aW9uPW5vbmUmc2VjdXJpdHk9bm9uZSZ0eXBlPXRjcCMxKSDQodCw0LHQutCwINGB0LvQvtC80LDQvdCwCnZsZXNzOi8vMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAyQDEyNy4wLjAuMTo0NDM/ZW5jcnlwdGlvbj1ub25lJnNlY3VyaXR5PW5vbmUmdHlwZT10Y3AjMikg0Lgg0L3QtSDRgNCw0LHQvtGC0LDQtdGCCnZsZXNzOi8vMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAzQDEyNy4wLjAuMTo0NDM/ZW5jcnlwdGlvbj1ub25lJnNlY3VyaXR5PW5vbmUmdHlwZT10Y3AjMykg0LjRgdC/0L7Qu9GM0LfRg9C50YLQtSBHVUktY29sbGVjdG9yCnZsZXNzOi8vMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDA0QDEyNy4wLjAuMTo0NDM/ZW5jcnlwdGlvbj1ub25lJnNlY3VyaXR5PW5vbmUmdHlwZT10Y3AjNCkg0LjQtyDRgNC10L/QvtC30LjRgtC+0YDQuNGP
