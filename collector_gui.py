@@ -14,11 +14,9 @@ from tkinter import messagebox, scrolledtext, ttk
 
 # ==================== НАСТРОЙКИ ====================
 SOURCES = [
-    "https://raw.githubusercontent.com/zieng2/wl/main/vless.txt",
-    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-SNI-RU-all.txt",
-    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-CIDR-RU-all.txt",
+    "https://hub.mos.ru/rkp/sub-roskompozor/raw/main/wl"
+    "https://hub.mos.ru/akelladejavu/bunker/-/raw/main/BLWL_MIX.txt"
 ]
-
 TCP_TIMEOUT = 4          # секунды на TCP-проверку
 FETCH_TIMEOUT = 25       # секунды на загрузку источника
 MAX_WORKERS_FETCH = 5    # параллельных загрузок источников
