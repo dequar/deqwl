@@ -6,8 +6,8 @@ from datetime import datetime
 
 # ==================== НАСТРОЙКИ ====================
 SOURCES = [
-    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt",
-    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile-2.txt"
+    "https://hub.mos.ru/akelladejavu/bunker/-/raw/main/BLWL_MIX.txt",
+    "https://hub.mos.ru/rkp/sub-roskompozor/raw/main/wl"
 ]
 
 OUTPUT_FILE = "deray.txt"
