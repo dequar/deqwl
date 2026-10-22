@@ -1,8 +1,10 @@
 import requests
 import re
 import base64
+import socket
 from urllib.parse import unquote
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==================== НАСТРОЙКИ ====================
 SOURCES = [
@@ -11,8 +13,10 @@ SOURCES = [
 ]
 
 OUTPUT_FILE = "deray.txt"
+TCP_TIMEOUT = 3
+MAX_WORKERS = 50
 
-VLESS_PATTERN = re.compile(r'vless://([A-Za-z0-9\-]+)@([A-Za-z0-9\-._\~\[\]:]+)\?([A-Za-z0-9\-._\~:/?#\[\]@!$&\'()*+,;=%]+)(?:#(.+))?')
+VLESS_PATTERN = re.compile(r'vless://([A-Za-z0-9\-]+)@([A-Za-z0-9\-._\\~\[\]:]+)\?([A-Za-z0-9\-._\\~:/?#\[\]@!$&\'()*+,;=%]+)(?:#(.+))?')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -44,6 +48,20 @@ def get_country_code(host, old_remark=""):
             return code
     return "XX"
 
+def tcp_alive(host_port, timeout=TCP_TIMEOUT):
+    try:
+        if host_port.startswith('['):
+            # IPv6 [addr]:port
+            host, port_str = host_port.rsplit(']:', 1)
+            host = host[1:]
+        else:
+            host, port_str = host_port.rsplit(':', 1)
+        port = int(port_str)
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
 def process():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Запуск сбора...")
 
@@ -65,15 +83,26 @@ def process():
 
                     key = (uuid, host_port)
                     if key not in unique_configs:
-                        country = get_country_code(host_port.split(':')[0], old_remark)
-                        # Сохраняем ТОЛЬКО чистую базу без ремарки
+                        country = get_country_code(host_port.split(':')[0] if not host_port.startswith('[') else host_port, old_remark)
                         base = f"vless://{uuid}@{host_port}?{params}"
-                        unique_configs[key] = {"base": base, "country": country}
+                        unique_configs[key] = {"base": base, "country": country, "host_port": host_port}
         except Exception as e:
             print(f"Ошибка источника {url}: {e}")
 
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Уникальных: {len(unique_configs)}. Жёсткий TCP-тест...")
+
+    alive = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(tcp_alive, item["host_port"]): item for item in unique_configs.values()}
+        for future in as_completed(futures):
+            item = futures[future]
+            if future.result():
+                alive.append(item)
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Живых: {len(alive)}")
+
     # Сортировка
-    sorted_list = sorted(unique_configs.values(), 
+    sorted_list = sorted(alive, 
                          key=lambda x: (0 if x['country'] == "RU" else (2 if x['country'] == "XX" else 1), x['country']))
 
     # Жёсткое формирование чистых имён
@@ -81,8 +110,6 @@ def process():
     for i, item in enumerate(sorted_list, 1):
         flag = FLAGS.get(item['country'], "🌍")
         new_name = f"{flag} {item['country']} - {i:03d}"
-        
-        # Самая жёсткая очистка — берём только до первого #
         clean_base = item['base'].split('#')[0]
         final_links.append(f"{clean_base}#{new_name}")
 
